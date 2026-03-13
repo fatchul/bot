@@ -9,7 +9,9 @@ CTrade trade;
 
 //================ INPUT =================
 input ENUM_TIMEFRAMES SignalTF = PERIOD_M5;
+
 input double DailyTargetPercent = 40.0; // max profit per hari (%)
+
 input double LotSize = 0.01;
 input double RiskPercent = 1.0;
 input double RR = 2.0;
@@ -23,13 +25,21 @@ input int Slowing = 3;
 input double Overbought = 80;
 input double Oversold = 20;
 
+// ==== EMA FILTER ====
+input bool UseEMAFilter = true;
+input int  EMAPeriod = 200;
+
 //================ GLOBAL =================
 int stochHandle;
 double Kbuffer[];
 double Dbuffer[];
 
+int emaHandle;
+double EMABuffer[];
+
 double StartEquityToday;
 int CurrentDay;
+
 //+------------------------------------------------------------------+
 int OnInit()
 {
@@ -43,6 +53,17 @@ int OnInit()
 
    trade.SetExpertMagicNumber(MagicNumber);
 
+   // EMA Handle
+   if(UseEMAFilter)
+   {
+      emaHandle = iMA(_Symbol,SignalTF,EMAPeriod,0,MODE_EMA,PRICE_CLOSE);
+
+      if(emaHandle==INVALID_HANDLE)
+         return(INIT_FAILED);
+
+      ArraySetAsSeries(EMABuffer,true);
+   }
+
    StartEquityToday = AccountInfoDouble(ACCOUNT_EQUITY);
 
    MqlDateTime tm;
@@ -51,6 +72,7 @@ int OnInit()
 
    return(INIT_SUCCEEDED);
 }
+
 //+------------------------------------------------------------------+
 
 void ResetDailyEquity()
@@ -67,6 +89,8 @@ void ResetDailyEquity()
    }
 }
 
+//+------------------------------------------------------------------+
+
 bool DailyTargetReached()
 {
    double equity = AccountInfoDouble(ACCOUNT_EQUITY);
@@ -79,15 +103,54 @@ bool DailyTargetReached()
    return false;
 }
 
+//+------------------------------------------------------------------+
+
 double GetSLdistance()
 {
    double equity = AccountInfoDouble(ACCOUNT_EQUITY);
    double riskMoney = equity * RiskPercent / 100.0;
 
    double tickvalue = SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_VALUE);
+
    double distance = riskMoney/(LotSize*tickvalue);
 
    return distance*_Point;
+}
+
+//+------------------------------------------------------------------+
+
+bool TrendBuyAllowed()
+{
+   if(!UseEMAFilter)
+      return true;
+
+   if(CopyBuffer(emaHandle,0,0,1,EMABuffer)<=0)
+      return false;
+
+   double price = SymbolInfoDouble(_Symbol,SYMBOL_BID);
+
+   if(price > EMABuffer[0])
+      return true;
+
+   return false;
+}
+
+//+------------------------------------------------------------------+
+
+bool TrendSellAllowed()
+{
+   if(!UseEMAFilter)
+      return true;
+
+   if(CopyBuffer(emaHandle,0,0,1,EMABuffer)<=0)
+      return false;
+
+   double price = SymbolInfoDouble(_Symbol,SYMBOL_BID);
+
+   if(price < EMABuffer[0])
+      return true;
+
+   return false;
 }
 
 //+------------------------------------------------------------------+
@@ -127,6 +190,8 @@ void ManageBreakEven()
    }
 }
 
+//+------------------------------------------------------------------+
+
 bool HaveOpenPosition()
 {
    for(int i=PositionsTotal()-1;i>=0;i--)
@@ -150,15 +215,15 @@ void OnTick()
 {
    if(CopyBuffer(stochHandle,0,0,3,Kbuffer)<=0) return;
    if(CopyBuffer(stochHandle,1,0,3,Dbuffer)<=0) return;
-   
+
    ResetDailyEquity();
-   
+
    if(HaveOpenPosition()) return;
-   
+
    if(DailyTargetReached()) return;
-   
+
    ManageBreakEven();
-   
+
    double K0 = Kbuffer[0];
    double K1 = Kbuffer[1];
 
@@ -170,9 +235,8 @@ void OnTick()
 
    double distance = GetSLdistance();
 
-
    //================ BUY =================
-   if(K0 < Oversold && crossBuy)
+   if(K0 < Oversold && crossBuy && TrendBuyAllowed())
    {
       double price = SymbolInfoDouble(_Symbol,SYMBOL_ASK);
 
@@ -183,7 +247,7 @@ void OnTick()
    }
 
    //================ SELL =================
-   if(K0 > Overbought && crossSell)
+   if(K0 > Overbought && crossSell && TrendSellAllowed())
    {
       double price = SymbolInfoDouble(_Symbol,SYMBOL_BID);
 
