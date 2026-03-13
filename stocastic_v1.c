@@ -10,7 +10,7 @@ CTrade trade;
 //================ INPUT =================
 input ENUM_TIMEFRAMES SignalTF = PERIOD_M5;
 
-input double DailyTargetPercent = 40.0; // max profit per hari (%)
+input double DailyTargetPercent = 40.0;
 
 input double LotSize = 0.01;
 input double RiskPercent = 1.0;
@@ -25,9 +25,12 @@ input int Slowing = 3;
 input double Overbought = 80;
 input double Oversold = 20;
 
-// ==== EMA FILTER ====
+// EMA FILTER
 input bool UseEMAFilter = true;
 input int  EMAPeriod = 200;
+
+// Consecutive Loss Limit
+input int MaxConsecutiveLoss = 3;
 
 //================ GLOBAL =================
 int stochHandle;
@@ -39,6 +42,9 @@ double EMABuffer[];
 
 double StartEquityToday;
 int CurrentDay;
+
+int ConsecutiveLossCount = 0;
+ulong LastProcessedDeal = 0;
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -53,7 +59,6 @@ int OnInit()
 
    trade.SetExpertMagicNumber(MagicNumber);
 
-   // EMA Handle
    if(UseEMAFilter)
    {
       emaHandle = iMA(_Symbol,SignalTF,EMAPeriod,0,MODE_EMA,PRICE_CLOSE);
@@ -86,6 +91,8 @@ void ResetDailyEquity()
    {
       CurrentDay = today;
       StartEquityToday = AccountInfoDouble(ACCOUNT_EQUITY);
+
+      ConsecutiveLossCount = 0;
    }
 }
 
@@ -108,6 +115,7 @@ bool DailyTargetReached()
 double GetSLdistance()
 {
    double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+
    double riskMoney = equity * RiskPercent / 100.0;
 
    double tickvalue = SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_VALUE);
@@ -211,16 +219,66 @@ bool HaveOpenPosition()
 
 //+------------------------------------------------------------------+
 
+void CheckLastClosedTrade()
+{
+   HistorySelect(0,TimeCurrent());
+
+   int deals = HistoryDealsTotal();
+
+   if(deals==0) return;
+
+   ulong ticket = HistoryDealGetTicket(deals-1);
+
+   if(ticket == LastProcessedDeal)
+      return;
+
+   LastProcessedDeal = ticket;
+
+   if(HistoryDealGetInteger(ticket,DEAL_MAGIC) != MagicNumber)
+      return;
+
+   if(HistoryDealGetString(ticket,DEAL_SYMBOL) != _Symbol)
+      return;
+
+   double profit = HistoryDealGetDouble(ticket,DEAL_PROFIT);
+
+   int entry = (int)HistoryDealGetInteger(ticket,DEAL_ENTRY);
+
+   if(entry != DEAL_ENTRY_OUT)
+      return;
+
+   if(profit < 0)
+      ConsecutiveLossCount++;
+   else
+      ConsecutiveLossCount = 0;
+}
+
+//+------------------------------------------------------------------+
+
+bool MaxLossReached()
+{
+   if(ConsecutiveLossCount >= MaxConsecutiveLoss)
+      return true;
+
+   return false;
+}
+
+//+------------------------------------------------------------------+
+
 void OnTick()
 {
-   if(CopyBuffer(stochHandle,0,0,3,Kbuffer)<=0) return;
-   if(CopyBuffer(stochHandle,1,0,3,Dbuffer)<=0) return;
-
    ResetDailyEquity();
+
+   CheckLastClosedTrade();
+
+   if(MaxLossReached()) return;
+
+   if(DailyTargetReached()) return;
 
    if(HaveOpenPosition()) return;
 
-   if(DailyTargetReached()) return;
+   if(CopyBuffer(stochHandle,0,0,3,Kbuffer)<=0) return;
+   if(CopyBuffer(stochHandle,1,0,3,Dbuffer)<=0) return;
 
    ManageBreakEven();
 
