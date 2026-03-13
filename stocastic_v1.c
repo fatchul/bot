@@ -93,6 +93,23 @@ void ManageBreakEven()
    }
 }
 
+bool HaveOpenPosition()
+{
+   for(int i=PositionsTotal()-1;i>=0;i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+
+      if(!PositionSelectByTicket(ticket))
+         continue;
+
+      if(PositionGetInteger(POSITION_MAGIC)==MagicNumber &&
+         PositionGetString(POSITION_SYMBOL)==_Symbol)
+         return true;
+   }
+
+   return false;
+}
+
 //+------------------------------------------------------------------+
 
 void OnTick()
@@ -102,7 +119,7 @@ void OnTick()
 
    ManageBreakEven();
 
-   if(PositionSelect(_Symbol)) return;
+   if(HaveOpenPosition()) return;
 
    double K0 = Kbuffer[0];
    double K1 = Kbuffer[1];
