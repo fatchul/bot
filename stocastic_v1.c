@@ -9,7 +9,7 @@ CTrade trade;
 
 //================ INPUT =================
 input ENUM_TIMEFRAMES SignalTF = PERIOD_M5;
-
+input double DailyTargetPercent = 40.0; // max profit per hari (%)
 input double LotSize = 0.01;
 input double RiskPercent = 1.0;
 input double RR = 2.0;
@@ -28,6 +28,8 @@ int stochHandle;
 double Kbuffer[];
 double Dbuffer[];
 
+double StartEquityToday;
+int CurrentDay;
 //+------------------------------------------------------------------+
 int OnInit()
 {
@@ -41,9 +43,41 @@ int OnInit()
 
    trade.SetExpertMagicNumber(MagicNumber);
 
+   StartEquityToday = AccountInfoDouble(ACCOUNT_EQUITY);
+
+   MqlDateTime tm;
+   TimeToStruct(TimeCurrent(),tm);
+   CurrentDay = tm.day;
+
    return(INIT_SUCCEEDED);
 }
 //+------------------------------------------------------------------+
+
+void ResetDailyEquity()
+{
+   MqlDateTime tm;
+   TimeToStruct(TimeCurrent(),tm);
+
+   int today = tm.day;
+
+   if(today != CurrentDay)
+   {
+      CurrentDay = today;
+      StartEquityToday = AccountInfoDouble(ACCOUNT_EQUITY);
+   }
+}
+
+bool DailyTargetReached()
+{
+   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+
+   double profitPercent = ((equity - StartEquityToday) / StartEquityToday) * 100.0;
+
+   if(profitPercent >= DailyTargetPercent)
+      return true;
+
+   return false;
+}
 
 double GetSLdistance()
 {
@@ -116,11 +150,15 @@ void OnTick()
 {
    if(CopyBuffer(stochHandle,0,0,3,Kbuffer)<=0) return;
    if(CopyBuffer(stochHandle,1,0,3,Dbuffer)<=0) return;
-
-   ManageBreakEven();
-
+   
+   ResetDailyEquity();
+   
    if(HaveOpenPosition()) return;
-
+   
+   if(DailyTargetReached()) return;
+   
+   ManageBreakEven();
+   
    double K0 = Kbuffer[0];
    double K1 = Kbuffer[1];
 
@@ -131,6 +169,7 @@ void OnTick()
    bool crossSell = (K1 > D1 && K0 < D0);
 
    double distance = GetSLdistance();
+
 
    //================ BUY =================
    if(K0 < Oversold && crossBuy)
