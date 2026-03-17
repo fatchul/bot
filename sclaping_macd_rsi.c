@@ -15,19 +15,19 @@ input group "=== TIMEFRAME ==="
 input ENUM_TIMEFRAMES InpTimeframe     = PERIOD_M5;     // M5
 
 input group "=== RSI SETTINGS ==="
-input int            InpRSIPeriod      = 7;             // RSI Period
-input int            InpRSIOversold    = 30;            // Oversold
+input int            InpRSIPeriod      = 10;             // RSI Period
+input int            InpRSIOversold    = 12;            // Oversold
 input int            InpRSIOverbought  = 70;            // Overbought
 
 input group "=== MACD SETTINGS ==="
-input int            InpMACDFast       = 6;             // Fast
-input int            InpMACDSlow       = 13;            // Slow
-input int            InpMACDSignal     = 5;             // Signal
+input int            InpMACDFast       = 8;             // Fast
+input int            InpMACDSlow       = 17;            // Slow
+input int            InpMACDSignal     = 7;             // Signal
 
 input group "=== MONEY MANAGEMENT - AMAN ==="
-input double         InpFixedLot       = 0.01;          // Lot kecil
-input int            InpStopLossPips   = 50;            // SL BESAR (50 pips)
-input int            InpTakeProfitPips = 30;            // TP kecil (30 pips)
+input double         InpFixedLot       = 0.04;          // Lot kecil
+input int            InpStopLossPips   = 600;            // SL BESAR (50 pips)
+input int            InpTakeProfitPips = 300;            // TP kecil (30 pips)
 input int            InpMagicNumber    = 123457;
 
 input group "=== FILTER ==="
