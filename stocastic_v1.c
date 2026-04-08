@@ -15,6 +15,7 @@ input double DailyTargetPercent = 40.0;
 input double LotSize = 0.01;
 input double RiskPercent = 1.0;
 input double RR = 2.0;
+input bool UseStochExit = true;
 
 input int MagicNumber = 777;
 
@@ -31,6 +32,9 @@ input int  EMAPeriod = 200;
 
 // Consecutive Loss Limit
 input int MaxConsecutiveLoss = 3;
+
+input string TelegramBotToken = "8795364053:AAEHpkMuUsu2xeKTHqg1_nclACDuvlxoyQ4";
+input string TelegramChatID   = "-1003848904572";
 
 //================ GLOBAL =================
 int stochHandle;
@@ -76,6 +80,42 @@ int OnInit()
    CurrentDay = tm.day;
 
    return(INIT_SUCCEEDED);
+}
+
+void ManageStochasticExit()
+{
+   if(!UseStochExit)
+      return;
+
+   if(!PositionSelect(_Symbol))
+      return;
+
+   if(PositionGetInteger(POSITION_MAGIC)!=MagicNumber)
+      return;
+
+   if(CopyBuffer(stochHandle,0,0,3,Kbuffer)<=0) return;
+   if(CopyBuffer(stochHandle,1,0,3,Dbuffer)<=0) return;
+
+   double K0 = Kbuffer[0];
+   double K1 = Kbuffer[1];
+
+   double D0 = Dbuffer[0];
+   double D1 = Dbuffer[1];
+
+   bool crossBuy = (K1 < D1 && K0 > D0);
+   bool crossSell = (K1 > D1 && K0 < D0);
+
+   long type = PositionGetInteger(POSITION_TYPE);
+
+   if(type==POSITION_TYPE_BUY && crossSell)
+   {
+      trade.PositionClose(_Symbol);
+   }
+
+   if(type==POSITION_TYPE_SELL && crossBuy)
+   {
+      trade.PositionClose(_Symbol);
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -271,6 +311,9 @@ void OnTick()
 
    CheckLastClosedTrade();
 
+   ManageBreakEven();
+   ManageStochasticExit();
+   
    if(MaxLossReached()) return;
 
    if(DailyTargetReached()) return;
@@ -279,8 +322,6 @@ void OnTick()
 
    if(CopyBuffer(stochHandle,0,0,3,Kbuffer)<=0) return;
    if(CopyBuffer(stochHandle,1,0,3,Dbuffer)<=0) return;
-
-   ManageBreakEven();
 
    double K0 = Kbuffer[0];
    double K1 = Kbuffer[1];
@@ -302,6 +343,17 @@ void OnTick()
       double tp = price + distance*RR;
 
       trade.Buy(LotSize,_Symbol,price,sl,tp);
+      
+      if(trade.Buy(LotSize,_Symbol,price,sl,tp))
+      {
+        string msg = "BUY " + _Symbol +
+             "\nTimeframe: " + EnumToString(SignalTF) +
+             "\nPrice: " + DoubleToString(price,_Digits) +
+             "\nSL: " + DoubleToString(sl,_Digits) +
+             "\nTP: " + DoubleToString(tp,_Digits);
+      
+        SendTelegramMessage(msg);
+      }
    }
 
    //================ SELL =================
@@ -313,6 +365,118 @@ void OnTick()
       double tp = price - distance*RR;
 
       trade.Sell(LotSize,_Symbol,price,sl,tp);
+      if(trade.Sell(LotSize,_Symbol,price,sl,tp))
+      {
+        string msg = "SELL " + _Symbol +
+             "\nTimeframe: " + EnumToString(SignalTF) +
+             "\nPrice: " + DoubleToString(price,_Digits) +
+             "\nSL: " + DoubleToString(sl,_Digits) +
+             "\nTP: " + DoubleToString(tp,_Digits);
+
+        SendTelegramMessage(msg);
+      }
    }
+}
+
+string UrlEncode(string text)
+{
+   string encoded = "";
+   uchar c;
+
+   for(int i=0; i<StringLen(text); i++)
+   {
+      c = (uchar)StringGetCharacter(text, i);
+
+      // karakter aman
+      if(
+         (c >= 'a' && c <= 'z') ||
+         (c >= 'A' && c <= 'Z') ||
+         (c >= '0' && c <= '9') ||
+         c == '-' || c == '_' || c == '.' || c == '~'
+      )
+      {
+         encoded += CharToString(c);
+      }
+      else if(c == ' ')
+      {
+         encoded += "%20";
+      }
+      else
+      {
+         encoded += StringFormat("%%%02X", c);
+      }
+   }
+
+   return encoded;
+}
+
+void SendTelegramMessage(string text)
+{
+   if(StringLen(TelegramBotToken)==0 || StringLen(TelegramChatID)==0)
+      return;
+
+   string url = "https://api.telegram.org/bot"+TelegramBotToken+"/sendMessage";
+
+   string data = "chat_id="+TelegramChatID+"&text="+UrlEncode(text);
+
+   char result[];
+   char post[];
+
+   StringToCharArray(data, post);
+
+   string headers = "Content-Type: application/x-www-form-urlencoded\r\n";
+
+   int res = WebRequest("POST", url, headers, 5000, post, result, headers);
+
+   if(res == -1)
+   {
+      Print("Telegram Error: ", GetLastError());
+   }
+   else
+   {
+      Print("Telegram sent: ", text);
+   }
+}
+
+bool LiquiditySweepBuy()
+{
+   double low1 = iLow(_Symbol, SignalTF, 1);
+   double low2 = iLow(_Symbol, SignalTF, 2);
+
+   double open = iOpen(_Symbol, SignalTF, 1);
+   double close = iClose(_Symbol, SignalTF, 1);
+   double low = iLow(_Symbol, SignalTF, 1);
+
+   // sweep: low sekarang lebih rendah dari sebelumnya
+   bool sweep = low < low2;
+
+   // rejection: close kembali naik + wick bawah panjang
+   double body = MathAbs(close - open);
+   double lowerWick = MathMin(open,close) - low;
+
+   bool rejection = lowerWick > body;
+
+   return (sweep && rejection);
+}
+
+//-------------------------------------
+
+bool LiquiditySweepSell()
+{
+   double high1 = iHigh(_Symbol, SignalTF, 1);
+   double high2 = iHigh(_Symbol, SignalTF, 2);
+
+   double open = iOpen(_Symbol, SignalTF, 1);
+   double close = iClose(_Symbol, SignalTF, 1);
+   double high = iHigh(_Symbol, SignalTF, 1);
+
+   bool sweep = high > high2;
+
+   double body = MathAbs(close - open);
+   double upperWick = high - MathMax(open,close);
+
+   bool rejection = upperWick > body;
+
+   return (sweep && rejection);
 }
 //+------------------------------------------------------------------+
